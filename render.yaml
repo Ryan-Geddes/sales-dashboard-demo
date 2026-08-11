@@ -1,0 +1,71 @@
+# Render Blueprint — deploys the demo as ONE free web service.
+#
+# The api-server process serves both the JSON API at /api/* and the built React
+# bundle at / (see artifacts/api-server/src/lib/serve-static.ts, enabled by
+# DEMO_MODE). Postgres is NOT provisioned here: Render's free tier has no free
+# database, so point DATABASE_URL at a free Neon project (see README).
+#
+# Deploy: push this repo to GitHub, then in Render choose
+# "New +" -> "Blueprint" and pick the repo. Set the `sync: false` vars in the
+# dashboard when prompted.
+
+services:
+  - type: web
+    name: sales-dashboard-demo
+    runtime: node
+    plan: standard
+    region: oregon
+    # Free instances spin down when idle; the first request after a sleep takes
+    # ~1 min because the 55MB demo snapshot is parsed on the first data read.
+    autoDeploy: true
+
+    buildCommand: |
+      export NODE_OPTIONS=--max-old-space-size=1536
+      corepack enable && corepack prepare pnpm@10 --activate
+      pnpm install --frozen-lockfile
+      pnpm run typecheck:libs
+      pnpm --filter @workspace/data-app run build
+      pnpm --filter @workspace/api-server run build
+
+    # Run from the api-server package directory so the bundled demo fixtures in
+    # artifacts/api-server/demo-data resolve (build.ts emits only dist/index.cjs
+    # and does not copy them). DEMO_DATA_DIR / STATIC_DIR below make this
+    # explicit and CWD-independent.
+    startCommand: node artifacts/api-server/dist/index.cjs
+
+    healthCheckPath: /api/healthz
+
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # The free instance has 512MB RAM; Node's default heap cap (~256MB) is
+      # too small to parse the 53MB demo snapshot into memory. Let the heap
+      # use most of the box, leaving headroom for buffers/stack/native.
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=1536
+      - key: DEMO_MODE
+        value: "1"
+      # Serves the built data-app at / from the same process. Implied by
+      # DEMO_MODE, set explicitly so it survives flipping DEMO_MODE off.
+      - key: SERVE_STATIC
+        value: "1"
+      - key: DEMO_DATA_DIR
+        value: /opt/render/project/src/artifacts/api-server/demo-data
+      - key: STATIC_DIR
+        value: /opt/render/project/src/artifacts/data-app/dist/public
+      - key: NODE_ENV
+        value: production
+      # Render injects PORT; the server requires it to be present.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Free Neon Postgres connection string (see README "Deploying for free").
+      - key: DATABASE_URL
+        sync: false
+      # Owner sign-in via GitHub OAuth. Optional: leave unset and the demo
+      # simply hides/503s the Owner option; the role logins still work.
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_ALLOWED_LOGIN
+        sync: false

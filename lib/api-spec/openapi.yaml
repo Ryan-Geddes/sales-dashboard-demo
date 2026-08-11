@@ -1,0 +1,4082 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: sales
+    description: Sales dashboard operations
+  - name: sheets
+    description: Google Sheets proxy operations
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: preferences
+    description: Per-user preferences storage
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /sales/config:
+    get:
+      operationId: getSalesConfig
+      tags: [sales]
+      summary: Get org hierarchy and filter options
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: >-
+            Month in `YYYY-MM` format. When supplied, the org / region /
+            group / segment selector lists are derived from the month-aware
+            effective hierarchy (so per-month roster reactivations appear in
+            the dropdowns). When omitted, the base sheet-level active flag is
+            used.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Sales config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesConfig"
+  /sales/pipeline:
+    get:
+      operationId: getSalesPipeline
+      tags: [sales]
+      summary: Get pipeline data for all reps
+      responses:
+        "200":
+          description: Pipeline data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineData"
+  /sales/activity:
+    get:
+      operationId: getSalesActivity
+      tags: [sales]
+      summary: Get activity metrics for all reps
+      responses:
+        "200":
+          description: Activity data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityData"
+  /sales/actions:
+    get:
+      operationId: getSalesActions
+      tags: [sales]
+      summary: Get action tables data
+      responses:
+        "200":
+          description: Actions data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionsData"
+  /sales/anaplan:
+    get:
+      operationId: getSalesAnaplan
+      tags: [sales]
+      summary: Anaplan Check Tool reconciliation
+      description: |
+        Reconciles Anaplan per-CPD current-month MRR against the dashboard's
+        comp-engine quota-mode compensable MRR (joined by the CPD's
+        opportunity_ids). Visible to all roles; no hierarchy scoping.
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+          description: Start of the close-date window (YYYY-MM-DD). Selects the month.
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+          description: End of the close-date window (YYYY-MM-DD).
+        - in: query
+          name: rawConditions
+          required: false
+          schema:
+            type: string
+          description: >
+            JSON-encoded admin Conditions builder filter (same as the pipeline
+            endpoints). Applied server-side before reconciliation; ignored for
+            non-admin callers.
+      responses:
+        "200":
+          description: Anaplan reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnaplanCheckResult"
+  /sales/photos:
+    get:
+      operationId: getSalesPhotos
+      tags: [sales]
+      summary: Get profile photo URLs for all people in org hierarchy
+      responses:
+        "200":
+          description: Photo URL map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoMap"
+  /sales/photos/sync:
+    post:
+      operationId: syncSalesPhotos
+      tags: [sales]
+      summary: Trigger manual photo sync from Slack
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoSyncResult"
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to returnTo on success.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+  /me/preferences/{key}:
+    get:
+      tags: [preferences]
+      operationId: getUserPreference
+      summary: Read a per-user preference value
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Preference value (null if not set).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferenceEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      tags: [preferences]
+      operationId: setUserPreference
+      summary: Save a per-user preference value
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreferenceEnvelope'
+      responses:
+        '200':
+          description: Preference saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferenceEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      tags: [preferences]
+      operationId: deleteUserPreference
+      summary: Delete a per-user preference value
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /sales/unreviewed-opps:
+    get:
+      operationId: getUnreviewedOpportunities
+      tags: [sales]
+      summary: List opportunities that the rep has not yet explicitly reviewed
+      description: |
+        Returns the open + scheduled-mod opportunities whose `isReviewed`
+        flag is false (no override row, OR override row with `reviewed_at`
+        cleared by the Sunday HST cron). Drives the "Unreviewed Opportunities"
+        modal and the unreviewed-count badge.
+      responses:
+        "200":
+          description: Unreviewed opportunities
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [opportunities]
+                properties:
+                  opportunities:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Opportunity"
+  /sales/opp-probabilities/{oppId}:
+    put:
+      operationId: setOppProbability
+      tags: [sales]
+      summary: Set or update the per-opportunity probability override
+      description: |
+        Inserts or updates the override row and stamps `reviewed_at = now()`,
+        which marks the opportunity as explicitly reviewed (clears the yellow
+        "needs review" highlight and removes it from the Unreviewed
+        Opportunities list until the next Sunday HST reset, if enabled).
+      parameters:
+        - name: oppId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [probability]
+              properties:
+                probability:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+      responses:
+        "200":
+          description: Override saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [oppId, probability]
+                properties:
+                  oppId:
+                    type: string
+                  probability:
+                    type: number
+    delete:
+      operationId: clearOppProbability
+      tags: [sales]
+      summary: Remove a per-opportunity probability override
+      description: |
+        Deletes the override row entirely. The opp falls back to the stage
+        default probability AND returns to the Unreviewed Opportunities list
+        because there is no `reviewed_at` to satisfy `isReviewed`.
+      parameters:
+        - name: oppId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Override cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+  /sales/manager-estimates:
+    get:
+      operationId: getManagerEstimates
+      tags: [sales]
+      summary: List Manager Estimate rows for a month
+      description: |
+        Per-(FLM, month, product) unweighted churn estimate values. Used
+        by the GNR Churn Forecast popup's pinned ME row and by the Sched
+        Mods drilldown's pinned ME row. Filter by `flms` (CSV of FLM
+        names) to scope to the visible team.
+      parameters:
+        - name: month
+          in: query
+          required: true
+          description: Month in `YYYY-MM` format.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: flms
+          in: query
+          required: false
+          description: Comma-separated list of FLM names to filter by.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Manager Estimate rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estimates]
+                properties:
+                  estimates:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ManagerEstimateRow"
+        "400":
+          description: Invalid `month` parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+    put:
+      operationId: upsertManagerEstimate
+      tags: [sales]
+      summary: Upsert a Manager Estimate $ value
+      description: |
+        Idempotent upsert keyed by `(flmName, monthYyyymm, product)`.
+        FLMs may only edit their own team's value; SLM/admin may edit
+        any FLM's value. The SLM cross-FLM-overwrite warning is enforced
+        client-side; the server only gates by role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flmName, monthYyyymm, product, unweightedAmount]
+              properties:
+                flmName:
+                  type: string
+                monthYyyymm:
+                  type: string
+                  pattern: '^\d{4}-\d{2}$'
+                product:
+                  type: string
+                unweightedAmount:
+                  type: number
+                  minimum: 0
+      responses:
+        "200":
+          description: Estimate saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estimate]
+                properties:
+                  estimate:
+                    $ref: "#/components/schemas/ManagerEstimateRow"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: FLM attempted to edit another FLM's row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /sales/compensation/config:
+    get:
+      operationId: getCompensationConfig
+      tags: [sales]
+      summary: Get the per-month compensation rules config
+      description: |
+        Returns the compensation config for a month (`YYYY-MM`, defaults to
+        the current month). When no saved row exists, the June reference
+        defaults are returned with `isDefault: true`. Restricted to
+        admin / SLM / exec.
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Month in `YYYY-MM` format. Defaults to the current month.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Compensation config
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config]
+                properties:
+                  config:
+                    $ref: "#/components/schemas/CompensationConfig"
+        "400":
+          description: Invalid `month` parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+    put:
+      operationId: updateCompensationConfig
+      tags: [sales]
+      summary: Upsert the per-month compensation rules config
+      description: |
+        Replaces the multiplier rules and FUB↔Zpro rule for a month. The
+        config is independent month-to-month. Restricted to admin / SLM /
+        exec and blocked for view-only sessions.
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Month in `YYYY-MM` format. Defaults to the current month.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [multiplierRules, pairedOppRules]
+              properties:
+                multiplierRules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CompMultiplierRule"
+                pairedOppRules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/PairedOppRule"
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config]
+                properties:
+                  config:
+                    $ref: "#/components/schemas/CompensationConfig"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /sales/compensation/test-opp:
+    post:
+      operationId: testCompensationOpp
+      tags: [sales]
+      summary: Diagnose a pasted opp id against a (draft) compensation rule
+      description: |
+        Read-only per-condition diagnostic. Given a pasted opportunity id and a
+        single rule (multiplier or paired-opp), classify every condition as
+        `match` / `noMatch` / `notTestable`. The opp is looked up across ALL
+        months; for paired rules its partner opp(s) are auto-resolved via the
+        rule's link fields. The rule is taken from the request body so the
+        result tracks unsaved edits in the rule card. This endpoint never
+        changes real compensation evaluation. Available to all authenticated
+        roles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, rule]
+              properties:
+                oppId:
+                  type: string
+                  description: |
+                    The opportunity id to test. Required for `multiplier` rules
+                    and the legacy single-id paired path.
+                oppTestIds:
+                  type: array
+                  description: |
+                    Paired rules only. Pasted opp ids PINNED to each named role,
+                    aligned index-for-index to the rule's `opps` (empty string =
+                    that role is left blank and auto-resolved). When present this
+                    takes precedence over `oppId` for paired rules.
+                  items:
+                    type: string
+                kind:
+                  type: string
+                  enum: [multiplier, paired]
+                  description: Which kind of rule `rule` is.
+                rule:
+                  description: |
+                    The rule to test. A `CompMultiplierRule` when `kind` is
+                    `multiplier`, a `PairedOppRule` when `kind` is `paired`.
+                  oneOf:
+                    - $ref: "#/components/schemas/CompMultiplierRule"
+                    - $ref: "#/components/schemas/PairedOppRule"
+      responses:
+        "200":
+          description: Diagnostic result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompTestOppResult"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /sales/product-logic/config:
+    get:
+      operationId: getProductLogicConfig
+      tags: [sales]
+      summary: Get the global Product Logic rule set + rename map
+      description: |
+        Returns the singleton global Product Logic config — the ordered,
+        first-match rule set driving product attribution / MRR-field selection /
+        Overage closed-won handling, plus the display-only rename map. When no
+        saved row exists the code defaults are returned with `isDefault: true`.
+        Restricted to admin / SLM / exec.
+      responses:
+        "200":
+          description: Product Logic config
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config]
+                properties:
+                  config:
+                    $ref: "#/components/schemas/ProductLogicConfig"
+    put:
+      operationId: updateProductLogicConfig
+      tags: [sales]
+      summary: Upsert the global Product Logic rule set + rename map
+      description: |
+        Replaces the global rule set and rename map. Rules are evaluated
+        top-down and the FIRST matching rule wins. Restricted to admin / SLM /
+        exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules, renameMap]
+              properties:
+                rules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ProductLogicRule"
+                renameMap:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ProductRenameEntry"
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config]
+                properties:
+                  config:
+                    $ref: "#/components/schemas/ProductLogicConfig"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+  /sales/product-logic/examples:
+    get:
+      operationId: getProductLogicExamples
+      tags: [sales]
+      summary: Get the per-rule example opportunity snapshots
+      description: |
+        Returns one representative example opportunity per rule id, snapshotted
+        so the editor has a concrete example beyond the feeder window.
+        Restricted to admin / SLM / exec.
+      responses:
+        "200":
+          description: Per-rule examples
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [examples]
+                properties:
+                  examples:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductLogicExample"
+  /sales/goals/config:
+    get:
+      operationId: getGoalsConfig
+      tags: [sales]
+      summary: Get the editable Goals config plus enum options
+      description: |
+        Returns the complete editable Goals config (role→group mapping, join
+        fields, finance.pps output mapping, inspect columns, software % rules)
+        and the enum options used to build the editors. Restricted to
+        admin / SLM / exec.
+      responses:
+        "200":
+          description: Goals config and options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoalsConfigEnvelope"
+  /sales/goals/config/role-group-mapping:
+    put:
+      operationId: updateGoalsRoleGroupMapping
+      tags: [sales]
+      summary: Replace the sales-role → group mapping
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RoleGroupMapEntry"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RoleGroupMapEntry"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/goal-csv-join-fields:
+    put:
+      operationId: updateGoalsGoalCsvJoinFields
+      tags: [sales]
+      summary: Replace the Goal CSV → hierarchy join fields
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GoalCsvJoinField"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GoalCsvJoinField"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/goal-csv-output-mapping:
+    put:
+      operationId: updateGoalsGoalCsvOutputMapping
+      tags: [sales]
+      summary: Replace the Goal CSV column → (metric, product) mapping
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/goal-csv-inspect-columns:
+    put:
+      operationId: updateGoalsGoalCsvInspectColumns
+      tags: [sales]
+      summary: Replace the Goal CSV inspect column selection
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/goal-csv-product-mapping:
+    put:
+      operationId: updateGoalsGoalCsvProductMapping
+      tags: [sales]
+      summary: Replace the Goal CSV Product column + per-product value mapping
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productColumn, productValueMapping]
+              properties:
+                productColumn:
+                  type: string
+                productValueMapping:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GoalCsvProductValueEntry"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [productColumn, productValueMapping]
+                properties:
+                  productColumn:
+                    type: string
+                  productValueMapping:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GoalCsvProductValueEntry"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/finance-pps-join-fields:
+    put:
+      operationId: updateGoalsFinancePpsJoinFields
+      tags: [sales]
+      summary: Replace the finance.pps → hierarchy join fields
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/FinancePpsJoinField"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinancePpsJoinField"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/finance-pps-output-mapping:
+    put:
+      operationId: updateGoalsFinancePpsOutputMapping
+      tags: [sales]
+      summary: Replace the finance.pps column → (metric, product) mapping
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/finance-pps-inspect-columns:
+    put:
+      operationId: updateGoalsFinancePpsInspectColumns
+      tags: [sales]
+      summary: Replace the finance.pps inspect column selection
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/software-gnr-rules:
+    put:
+      operationId: updateGoalsSoftwareGnrRules
+      tags: [sales]
+      summary: Replace the Software % GNR rules config
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  $ref: "#/components/schemas/SoftwarePctRules"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    $ref: "#/components/schemas/SoftwarePctRules"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/config/software-acq-rules:
+    put:
+      operationId: updateGoalsSoftwareAcqRules
+      tags: [sales]
+      summary: Replace the Software % ACQ rules config
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  $ref: "#/components/schemas/SoftwarePctRules"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [value]
+                properties:
+                  value:
+                    $ref: "#/components/schemas/SoftwarePctRules"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/finance-pps/inspect:
+    get:
+      operationId: inspectGoalsFinancePps
+      tags: [sales]
+      summary: Inspect the persisted finance.pps snapshot
+      description: |
+        Returns the stored finance.pps snapshot rows, all available columns,
+        the user-selected inspect columns, and the last fetch status.
+        Restricted to admin / SLM / exec.
+      responses:
+        "200":
+          description: finance.pps snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows, allColumns, selectedColumns, fetchError]
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  allColumns:
+                    type: array
+                    items:
+                      type: string
+                  selectedColumns:
+                    type: array
+                    items:
+                      type: string
+                  fetchedAt:
+                    type: [string, 'null']
+                  fetchError:
+                    type: boolean
+                  fetchErrorMessage:
+                    type: [string, 'null']
+  /sales/goals/finance-pps/refresh:
+    post:
+      operationId: refreshGoalsFinancePps
+      tags: [sales]
+      summary: Re-fetch the finance.pps snapshot from Databricks
+      description: Restricted to admin / SLM / exec and blocked for view-only sessions.
+      responses:
+        "200":
+          description: Refresh result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rowCount, columnCount, fetchError]
+                properties:
+                  rowCount:
+                    type: integer
+                  columnCount:
+                    type: integer
+                  fetchedAt:
+                    type: [string, 'null']
+                  fetchError:
+                    type: boolean
+                  fetchErrorMessage:
+                    type: [string, 'null']
+  /sales/goals/goal-csv/inspect:
+    get:
+      operationId: inspectGoalsGoalCsv
+      tags: [sales]
+      summary: List stored Goal CSV rows with column metadata
+      description: Restricted to admin / SLM / exec.
+      responses:
+        "200":
+          description: Goal CSV rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows, allColumns, selectedColumns]
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties:
+                        type: string
+                  allColumns:
+                    type: array
+                    items:
+                      type: string
+                  selectedColumns:
+                    type: array
+                    items:
+                      type: string
+  /sales/goals/goal-csv/upload:
+    post:
+      operationId: uploadGoalsGoalCsv
+      tags: [sales]
+      summary: Replace all Goal CSV rows from an uploaded CSV
+      description: |
+        Parses the CSV (every column is preserved verbatim; no required headers)
+        then replaces all stored rows. Restricted to admin / SLM / exec and
+        blocked for view-only sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [csv]
+              properties:
+                csv:
+                  type: string
+      responses:
+        "200":
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [inserted]
+                properties:
+                  inserted:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/resolve:
+    get:
+      operationId: resolveGoals
+      tags: [sales]
+      summary: Resolve goals for one source for a month
+      description: |
+        Resolves a single goal source into a per-rep, per-product goal set for
+        the given month (`YYYY-MM`, defaults to current). Products/metrics a
+        source does not populate are absent (zero downstream). Restricted to
+        admin / SLM / exec.
+      parameters:
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [financePps, goalCsv, softwareGnr, softwareAcq]
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Resolved goals
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source, month, goals]
+                properties:
+                  source:
+                    type: string
+                    enum: [financePps, goalCsv, softwareGnr, softwareAcq]
+                  month:
+                    type: string
+                  goals:
+                    $ref: "#/components/schemas/ResolvedGoals"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/table:
+    get:
+      operationId: getGoalTable
+      tags: [sales]
+      summary: Get the main Goals table for the dashboard filter set
+      description: |
+        Returns one row per non-SLM/FLM rep × product across the five canonical
+        products for `month` (`YYYY-MM`, defaults to current), narrowed by the
+        optional dashboard filters. Each row carries its hierarchy attributes,
+        its Source (default finance.pps) and the base goals that source resolves
+        to, the per-row overrides (manual multipliers, LOA status, eRep
+        multiplier), and the four computed Final goal columns. Restricted to
+        admin / SLM / exec.
+      parameters:
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: slm
+          in: query
+          required: false
+          description: Filter to a single SLM by name.
+          schema:
+            type: string
+        - name: flm
+          in: query
+          required: false
+          description: Filter to a single FLM by name.
+          schema:
+            type: string
+        - name: reps
+          in: query
+          required: false
+          description: Comma-separated list of rep names to include.
+          schema:
+            type: string
+        - name: regions
+          in: query
+          required: false
+          description: Comma-separated list of regions to include.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Goals table rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, rows]
+                properties:
+                  month:
+                    type: string
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GoalTableRow"
+  /sales/goals/table/override:
+    put:
+      operationId: upsertGoalRowOverride
+      tags: [sales]
+      summary: Upsert a single Goals-table row override
+      description: |
+        Inserts or updates the per-(month, rep, product) override. Only the
+        fields present in the body are changed; omitted fields keep their stored
+        value or the code default. Restricted to admin / SLM / exec.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoalRowOverrideInput"
+      responses:
+        "200":
+          description: Override saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [override]
+                properties:
+                  override:
+                    $ref: "#/components/schemas/GoalRowOverride"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sales/goals/table/bulk-source:
+    post:
+      operationId: bulkSetGoalRowSource
+      tags: [sales]
+      summary: Bulk-set the Source for every row in the filter set
+      description: |
+        Sets the goal Source for all (rep, product) rows in the current filter
+        set (`month` + the optional narrowing filters supplied as query params),
+        preserving any other stored per-row override values. Restricted to
+        admin / SLM / exec.
+      parameters:
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: slm
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: flm
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: reps
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: regions
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  $ref: "#/components/schemas/GoalSourceId"
+      responses:
+        "200":
+          description: Bulk source applied
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, updated, source]
+                properties:
+                  month:
+                    type: string
+                  updated:
+                    type: integer
+                  source:
+                    $ref: "#/components/schemas/GoalSourceId"
+        "400":
+          $ref: "#/components/responses/GoalsValidationError"
+  /sheets/fetch:
+    get:
+      operationId: fetchSheet
+      tags: [sheets]
+      summary: Fetch a Google Sheet as CSV via server-side proxy
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Full Google Sheets URL
+      responses:
+        "200":
+          description: CSV content of the sheet
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          description: Invalid or missing URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "502":
+          description: Could not fetch the sheet
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /sales/roster:
+    get:
+      operationId: getRoster
+      tags: [sales]
+      summary: List the editable roster for a month
+      description: |
+        Every person in the base hierarchy (active AND inactive) with their
+        base hierarchy values, the per-month overrides, and the resolved
+        effective values. Executive-view roles only.
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Month in `YYYY-MM` format. Defaults to the current month.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Roster rows for the month
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, rows]
+                properties:
+                  month:
+                    type: string
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RosterPersonRow"
+        "400":
+          description: Invalid `month` parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /sales/roster/override:
+    put:
+      operationId: upsertRosterOverride
+      tags: [sales]
+      summary: Upsert a single person's roster override for a month
+      description: |
+        Sets per-month hierarchy overrides for one person (Active, FLM,
+        SLM, region, segment, sales role). Only the provided fields change;
+        send `null` to clear a field's override. Strictly month-scoped and
+        never carried forward. Returns the refreshed roster for the month.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [month, person]
+              properties:
+                month:
+                  type: string
+                  pattern: '^\d{4}-\d{2}$'
+                person:
+                  type: string
+                active:
+                  type: boolean
+                  nullable: true
+                flm:
+                  type: string
+                  nullable: true
+                slm:
+                  type: string
+                  nullable: true
+                region:
+                  type: string
+                  nullable: true
+                segment:
+                  type: string
+                  nullable: true
+                salesRole:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Override saved; refreshed roster for the month
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [month, rows]
+                properties:
+                  month:
+                    type: string
+                  rows:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RosterPersonRow"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    SalesConfig:
+      type: object
+      required:
+        - org
+        - segments
+        - regions
+        - groups
+        - products
+      properties:
+        org:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                type: string
+        segments:
+          type: array
+          items:
+            type: string
+        regions:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        acqSlms:
+          type: array
+          description: |
+            SLMs whose subtree belongs to the Acquisitions channel, derived
+            from each rep's data-driven channel (no hardcoded names, demo-safe).
+          items:
+            type: string
+        demoProductLabels:
+          type: object
+          description: |
+            Present only in DEMO_MODE: canonical internal product name ->
+            demo-facing display label. The frontend translates product names
+            and abbreviations at render time; engine data stays canonical.
+          additionalProperties:
+            type: object
+            required:
+              - name
+              - abbrev
+            properties:
+              name:
+                type: string
+              abbrev:
+                type: string
+        products:
+          type: array
+          items:
+            type: string
+        types:
+          type: array
+          items:
+            type: string
+        salesRoles:
+          type: array
+          items:
+            type: string
+        quoteTypes:
+          type: array
+          items:
+            type: string
+        rawProducts:
+          type: array
+          description: |
+            Task #361: distinct raw Product values for the admin-only Conditions
+            filter in the Pipeline view.
+          items:
+            type: string
+        productFamilies:
+          type: array
+          description: |
+            Task #361: distinct Product Family values for the admin-only
+            Conditions filter in the Pipeline view.
+          items:
+            type: string
+        termLengths:
+          type: array
+          description: |
+            Task #361: distinct Term Length values for the admin-only Conditions
+            filter in the Pipeline view.
+          items:
+            type: string
+        funnelStages:
+          type: array
+          description: |
+            Task #361: distinct canonical Funnel Stage buckets for the
+            admin-only Conditions filter in the Pipeline view.
+          items:
+            type: string
+        mrrFields:
+          type: array
+          description: |
+            Task #276/#314: canonical base MRR source options for the per-rule
+            MRR field picker on the Compensation Rules tab. Each entry is a
+            stable value (a feeder-sheet or CPD-object column) and a label.
+          items:
+            type: object
+            required: [value, label]
+            properties:
+              value:
+                type: string
+                enum:
+                  - changeInMrr
+                  - totalMrr
+                  - splitTotalPrice
+                  - totalPrice
+                  - amount
+                  - mrr
+                  - mrr_added
+                  - positive_change_in_mrr
+                  - negative_change_in_mrr
+              label:
+                type: string
+        mrrFieldSources:
+          type: object
+          description: |
+            Task #314: the mrrFields options grouped by upstream source. Feeder
+            rules pick from `feeder`; CPD-pinned rules (ZMX / Showcase
+            Incremental - Re/Max) pick from `cpd`. A rule may reference only one.
+          required: [feeder, cpd]
+          properties:
+            feeder:
+              type: array
+              items:
+                type: string
+            cpd:
+              type: array
+              items:
+                type: string
+        cpdSourcedValues:
+          type: array
+          description: |
+            Task #314: product/type values whose opps are CPD-sourced
+            (Databricks). The rules UI uses these to keep a rule single-source.
+          items:
+            type: string
+
+    RepPipeline:
+      type: object
+      required:
+        - name
+        - flm
+        - slm
+        - region
+        - group
+        - goal30d
+        - mrr30d
+        - mrr24h
+        - churn30d
+        - churn24h
+        - mods30d
+        - mods24h
+        - funnel
+        - productShare
+        - productFunnel
+      properties:
+        name:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        goal30d:
+          type: number
+        mrr30d:
+          type: number
+        mrr24h:
+          type: number
+        churn30d:
+          type: number
+        churn24h:
+          type: number
+        mods30d:
+          type: number
+        mods24h:
+          type: number
+        funnel:
+          type: object
+          additionalProperties:
+            type: number
+        productShare:
+          type: object
+          additionalProperties:
+            type: number
+        productFunnel:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: number
+        productMods:
+          type: object
+          description: Per-product sum of scheduled-mod amounts attributed to this rep within the active mods window. Used to populate Churn Forecast booked totals.
+          additionalProperties:
+            type: number
+        productModsWeighted:
+          type: object
+          description: Per-product weighted scheduled-mod amounts (each mod multiplied by its effective probability — per-mod override or the Scheduled Mods stage default). Used to populate Churn Forecast weighted totals.
+          additionalProperties:
+            type: number
+        productModsCount:
+          type: object
+          description: Per-product count of deduped scheduled-mod rows attributed to this rep within the active mods window. Used to display the "N mods" badge on the Churn Forecast popup.
+          additionalProperties:
+            type: number
+        productChurnTypeMods:
+          type: object
+          description: Per-product × per-churn-type sum of scheduled-mod amounts. Excludes Manager Estimate contributions (ME has its own pinned row). Used by the per-Churn-Type rows in the GNR Churn Forecast popup.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: number
+        productChurnTypeModsWeighted:
+          type: object
+          description: Per-product × per-churn-type weighted scheduled-mod amounts (each mod multiplied by its effective probability — per-mod override or the per-churn-type stage default).
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: number
+        productChurnTypeModsCount:
+          type: object
+          description: Per-product × per-churn-type count of deduped scheduled-mod rows.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: number
+        cwByMonth:
+          type: object
+          description: Per-rep per-calendar-month Closed Won bucket (Task #159 quota proration). Keys are "YYYY-MM"; values carry the CW measurement variants the client switches between (`added`, `acqNet`, `std`).
+          additionalProperties:
+            $ref: "#/components/schemas/CwBucket"
+        productCwByMonth:
+          type: object
+          description: Per-rep per-product per-calendar-month Closed Won. Outer key product, inner key "YYYY-MM".
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: "#/components/schemas/CwBucket"
+        cwMtd:
+          description: Per-rep current-month Closed Won restricted to closeDate <= today (PST). Used to subtract already-booked CW from monthly_goal before applying the business-day proration factor.
+          $ref: "#/components/schemas/CwBucket"
+        productCwMtd:
+          type: object
+          description: Per-rep per-product current-month Closed Won restricted to closeDate <= today (PST).
+          additionalProperties:
+            $ref: "#/components/schemas/CwBucket"
+        cwDaysByMonth:
+          type: object
+          description: Sparse per-day Closed Won keyed by "YYYY-MM" then by day-of-month ("1".."31"). Lets the client compute exact subtractable amounts for partial-month boundaries in custom date ranges. Sums across the full month equal cwByMonth.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: "#/components/schemas/CwBucket"
+        productCwDaysByMonth:
+          type: object
+          description: Sparse per-product per-day Closed Won. Outer key product, then "YYYY-MM", then day-of-month. Sums across the full month equal productCwByMonth.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/CwBucket"
+
+    CwBucket:
+      type: object
+      description: Closed-won amount aggregated under each of the measurement modes the Pipeline view supports. `std` is the standard CW total.
+      required:
+        - added
+        - acqNet
+        - std
+      properties:
+        added:
+          type: number
+        acqNet:
+          type: number
+        std:
+          type: number
+
+    PipelineData:
+      type: object
+      required:
+        - reps
+        - quotaDataAvailable
+      properties:
+        reps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepPipeline"
+        quotaDataAvailable:
+          type: boolean
+          description: True when the *selected* month's quotas were populated by Anaplan. False means the selected month's quota upload hasn't landed yet (typically the first few days of a month before the ~5th-of-month publish). The UI should still render the quota card normally and only show a small "not yet published" indicator — other months in the date range may still have valid quotas.
+        quotaError:
+          type: boolean
+          description: True when the upstream quota query failed or timed out. When true, all rep quotas are returned as zeros and the UI should show a fetch warning rather than the "not yet published" indicator.
+        quotaErrorMessage:
+          type: string
+
+    RepActivity:
+      type: object
+      required:
+        - name
+        - flm
+        - slm
+        - region
+        - group
+        - dials30d
+        - dials24h
+        - convos30d
+        - convos24h
+        - talk30d
+        - talk24h
+        - emails30d
+        - emails24h
+        - sbrs30d
+        - sbrs24h
+        - opps30d
+        - opps24h
+      properties:
+        name:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        dials30d:
+          type: number
+        dials24h:
+          type: number
+        convos30d:
+          type: number
+        convos24h:
+          type: number
+        talk30d:
+          type: number
+        talk24h:
+          type: number
+        emails30d:
+          type: number
+        emails24h:
+          type: number
+        sbrs30d:
+          type: number
+        sbrs24h:
+          type: number
+        opps30d:
+          type: number
+        opps24h:
+          type: number
+        dailyTalk:
+          type: object
+          additionalProperties:
+            type: number
+        oppsByProduct30d:
+          type: object
+          additionalProperties:
+            type: number
+        oppsByProduct24h:
+          type: object
+          additionalProperties:
+            type: number
+        demosByProduct30d:
+          type: object
+          additionalProperties:
+            type: number
+        demosByProduct24h:
+          type: object
+          additionalProperties:
+            type: number
+
+    ActivityData:
+      type: object
+      required:
+        - reps
+      properties:
+        reps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepActivity"
+
+    ActionItem:
+      type: object
+      required:
+        - account
+        - rep
+        - flm
+        - slm
+        - region
+        - group
+        - status
+        - lastActivity
+        - lastContact
+        - awaiting
+      properties:
+        account:
+          type: string
+        rep:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        status:
+          type: string
+        lastActivity:
+          type: string
+        lastContact:
+          type: string
+        awaiting:
+          type: boolean
+
+    InboundItem:
+      type: object
+      required:
+        - contact
+        - interactionId
+        - rep
+        - flm
+        - slm
+        - region
+        - group
+        - leadSource
+        - inboundTime
+        - hoursSinceReply
+      properties:
+        contact:
+          type: string
+        interactionId:
+          type: string
+        rep:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        leadSource:
+          type: string
+        inboundTime:
+          type: string
+        hoursSinceReply:
+          type: number
+        inboundMs:
+          type: number
+        disposition:
+          type: string
+        productOfInterest:
+          type: string
+        daysSinceLastActivity:
+          type: number
+          nullable: true
+        ownerActive:
+          type: boolean
+        lastSalesActivity:
+          type: string
+        lastActivityDate:
+          type: string
+        okToContact:
+          type: string
+        flexStatus:
+          type: string
+        enterpriseRelated:
+          type: string
+        oppStage:
+          type: string
+        oppQuoteType:
+          type: string
+        oppCloseDate:
+          type: string
+        oppOwner:
+          type: string
+        oppId18:
+          type: string
+        lastCalled:
+          type: string
+        lastCalledMs:
+          type: number
+        lastCalledConversationId:
+          type: string
+        totalCalls:
+          type: number
+
+    CcDeclineItem:
+      type: object
+      required:
+        - account
+        - contactId
+        - rep
+        - flm
+        - slm
+        - region
+        - group
+        - declinedAmount
+        - declineDate
+        - mrr
+      properties:
+        account:
+          type: string
+        contactId:
+          type: string
+        rep:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        declinedAmount:
+          type: number
+        declineDate:
+          type: string
+        mrr:
+          type: number
+
+    TopAccountItem:
+      type: object
+      required:
+        - account
+        - rep
+        - flm
+        - slm
+        - currentMrr
+        - mrrOpp
+        - lastContact
+      properties:
+        account:
+          type: string
+        rep:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        currentMrr:
+          type: number
+        mrrOpp:
+          type: number
+        lastContact:
+          type: string
+
+    ActionsData:
+      type: object
+      required:
+        - actionItems
+        - inboundItems
+        - ccDeclines
+        - topAccounts
+        - staleOpps
+      properties:
+        actionItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActionItem"
+        inboundItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/InboundItem"
+        ccDeclines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CcDeclineItem"
+        topAccounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopAccountItem"
+        staleOpps:
+          type: array
+          items:
+            $ref: "#/components/schemas/StaleOppItem"
+
+    StaleOppItem:
+      type: object
+      required:
+        - oppName
+        - oppId
+        - rep
+        - flm
+        - slm
+        - region
+        - group
+        - segment
+        - accountName
+        - accountId
+        - createdDate
+        - closeDate
+        - amount
+        - type
+        - product
+        - stage
+      properties:
+        oppName:
+          type: string
+        oppId:
+          type: string
+        rep:
+          type: string
+        flm:
+          type: string
+        slm:
+          type: string
+        region:
+          type: string
+        group:
+          type: string
+        segment:
+          type: string
+        accountName:
+          type: string
+        accountId:
+          type: string
+        createdDate:
+          type: string
+        closeDate:
+          type: string
+        amount:
+          type: number
+        type:
+          type: string
+        product:
+          type: string
+        stage:
+          type: string
+
+    PhotoMap:
+      type: object
+      required:
+        - photos
+      properties:
+        photos:
+          type: object
+          additionalProperties:
+            type: string
+
+    AnaplanRawMrr:
+      type: object
+      description: |
+        Raw feeder-sheet MRR columns for an Anaplan opp / line item, surfaced so
+        the Anaplan reconciliation table can show each candidate MRR field next to
+        the compensable total. Keys mirror the feeder MrrField codes.
+      required:
+        - changeInMrr
+        - totalMrr
+        - splitTotalPrice
+        - totalPrice
+        - amount
+        - mrr
+      properties:
+        changeInMrr:
+          type: number
+        totalMrr:
+          type: number
+        splitTotalPrice:
+          type: number
+        totalPrice:
+          type: number
+        amount:
+          type: number
+        mrr:
+          type: number
+
+    AnaplanLineItem:
+      type: object
+      required:
+        - product
+        - compensableMrr
+        - rep
+        - group
+        - outOfChannel
+        - ruleNames
+        - multipliers
+        - rawMrr
+        - baseMrrField
+        - effectiveMrrField
+        - mrrFieldRuleLabels
+        - productLogicLabel
+        - excludedByAcqChurn
+      properties:
+        product:
+          type: string
+        compensableMrr:
+          type: number
+        rep:
+          type: string
+          description: |
+            The line item's owner (effective rep after any comp
+            owner-reassignment), so a multi-owner opportunity can show every
+            line beside its owner name — even owners outside the opp's
+            attributed channel.
+        group:
+          type: string
+          description: The owner's effective channel/group (post owner-reassignment).
+        outOfChannel:
+          type: boolean
+          description: |
+            True when this line item belongs to a different channel than the opp
+            line it is shown under. Out-of-channel lines are displayed for
+            context (with their owner name) but DO NOT add to the opp's
+            compensableMrr total unless a compensation/product rule reassigns the
+            credit into this channel.
+        excludedByAcqChurn:
+          type: boolean
+          description: |
+            True when this line is an Acquisitions-channel churn line item that
+            the Acquisition churn gate drops from Quota Target MRR (a negative
+            Closed Won line with no paired positive Closed Won for the same
+            rep/account/product this month). Its compensableMrr is forced to 0
+            so the Anaplan total reconciles to the Pipeline acqNet total; the UI
+            renders it red.
+        acqChurnOverridden:
+          type: boolean
+          description: |
+            True when this line WOULD have been dropped by the Acquisition
+            churn gate but an "Ignore ACQ Churn Logic" paired-rule adjustment
+            flagged its opp to bypass the gate, so its churn counts toward
+            Quota Target MRR anyway.
+        ruleNames:
+          type: array
+          items:
+            type: string
+        multipliers:
+          type: array
+          items:
+            type: number
+        pairAdjustmentLabel:
+          type: string
+          nullable: true
+          description: |
+            Paired-opp adjustment label for this line's side (e.g.
+            "zpro: × 0.1", "fub: waived"), mirroring the drilldown's
+            Multipliers column text. Null when the line is not part of a
+            fired pair.
+        rawMrr:
+          $ref: "#/components/schemas/AnaplanRawMrr"
+        baseMrrField:
+          type: string
+          description: |
+            The feeder MrrField the engine's Type-driven product logic uses as
+            the base compensable MRR for this line (no rule override). Blank for
+            CPD-sourced rows whose MRR comes from Databricks, not a feeder column.
+        effectiveMrrField:
+          type: string
+          description: |
+            The feeder MrrField actually used after rule overrides — equals
+            baseMrrField unless a rule's MRR-field override won.
+        mrrFieldWinner:
+          type: string
+          nullable: true
+          description: Label of the rule whose MRR-field override applied (null when the default field was used).
+        mrrFieldRuleLabels:
+          type: array
+          items:
+            type: string
+          description: Labels of every matching MRR-field-setting rule (length > 1 means conflicting field rules).
+        productLogicLabel:
+          type: string
+          description: |
+            Label of the Product Logic rule (first-match, top-down) that
+            selected this line's base MRR field. Blank when no rule matched
+            (legacy passthrough).
+        productLogicNumber:
+          type: integer
+          nullable: true
+          description: |
+            1-based position of the matched Product Logic rule in the active
+            rule list (mirrors the Product Logic tab's numbering). Null when no
+            rule matched.
+
+    AnaplanPartnerOpp:
+      type: object
+      description: |
+        A partner opportunity that satisfied a paired-opp comp rule's trigger
+        alongside the opp it is shown under (same engine pairKey). Purely
+        display context for the Anaplan table's expandable pair rows — partner
+        MRR is NEVER added to the CPD's Quota Target MRR or any Anaplan
+        aggregate. Partner opps are often owned by other reps (e.g. an On
+        Demand "V3 Cancel: waived" cancel) and absent from the CPD's own opp
+        list, so they are embedded on the opp line.
+      required:
+        - oppId
+        - oppName
+        - accountId
+        - rep
+        - product
+        - ruleLabel
+        - compensableMrr
+        - rawMrr
+      properties:
+        oppId:
+          type: string
+        oppName:
+          type: string
+        accountId:
+          type: string
+        rep:
+          type: string
+        product:
+          type: string
+        ruleLabel:
+          type: string
+          description: |
+            The paired rule's label for the partner's side (e.g. "V3 Cancel: waived").
+        compensableMrr:
+          type: number
+          description: Context-only compensable MRR of the partner rows (e.g. $0.00 waived).
+        rawMrr:
+          $ref: "#/components/schemas/AnaplanRawMrr"
+
+    AnaplanOppLine:
+      type: object
+      required:
+        - oppId
+        - found
+        - compensableMrr
+        - product
+        - rep
+        - oppName
+        - accountId
+        - accountName
+        - slm
+        - flm
+        - region
+        - segment
+        - group
+        - ruleNames
+        - multipliers
+        - lineItemCount
+        - lineItems
+        - rawMrr
+        - excludedByAcqChurn
+        - closeDate
+      properties:
+        oppId:
+          type: string
+        found:
+          type: boolean
+        compensableMrr:
+          type: number
+        closeDate:
+          type: string
+          description: |
+            The opportunity's close date (M/D/YYYY), taken from the underlying
+            parsed row's displayed close date. Shown in the "opps missing CPDs"
+            table on the Anaplan tab.
+        excludedByAcqChurn:
+          type: boolean
+          description: |
+            True when at least one of this opp's line items was dropped by the
+            Acquisition churn gate (see AnaplanLineItem.excludedByAcqChurn). The
+            dropped lines contribute 0 to compensableMrr; the UI renders the opp
+            red.
+        acqChurnOverridden:
+          type: boolean
+          description: |
+            True when at least one of this opp's line items bypassed the
+            Acquisition churn gate via an "Ignore ACQ Churn Logic" adjustment
+            (see AnaplanLineItem.acqChurnOverridden).
+        product:
+          type: string
+        rep:
+          type: string
+        oppName:
+          type: string
+        accountId:
+          type: string
+        accountName:
+          type: string
+        slm:
+          type: string
+        flm:
+          type: string
+        region:
+          type: string
+        segment:
+          type: string
+        group:
+          type: string
+        sfContactId:
+          type: string
+        sfCpdId:
+          type: string
+        ruleNames:
+          type: array
+          items:
+            type: string
+        multipliers:
+          type: array
+          items:
+            type: number
+        lineItemCount:
+          type: integer
+        lineItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnaplanLineItem"
+        rawMrr:
+          $ref: "#/components/schemas/AnaplanRawMrr"
+        pairOppName:
+          type: string
+          description: |
+            Paired-opp rule metadata, mirroring the pipeline drilldown's pair
+            badge: the matched rule's named opp this opp belongs to. Set only
+            when a fired paired-opp rule pairs this opp.
+        pairRuleLabel:
+          type: string
+          description: Label of the paired-opp rule that paired this opp.
+        pairKey:
+          type: string
+          description: The engine's pair-group key linking both sides of the pair.
+        partnerOpps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnaplanPartnerOpp"
+          description: |
+            Context-only partner opp(s) sharing this opp's pairKey (the other
+            side of the pair), for the expandable pair sub-rows. Never counted
+            in Quota Target MRR or any Anaplan aggregate.
+
+    AnaplanCpdRow:
+      type: object
+      required:
+        - cpdId
+        - slm
+        - owner
+        - partnerName
+        - compensationDate
+        - source
+        - groupAMrr
+        - groupBMrr
+        - groupCMrr
+        - anaplanMrr
+        - quotaTargetMrr
+        - opportunityIds
+        - opps
+        - fallbackDims
+        - ownerInHierarchy
+      properties:
+        cpdId:
+          type: string
+        slm:
+          type: string
+        owner:
+          type: string
+        partnerName:
+          type: string
+        compensationDate:
+          type: string
+        source:
+          type: object
+          additionalProperties:
+            type: string
+        groupAMrr:
+          type: number
+        groupBMrr:
+          type: number
+        groupCMrr:
+          type: number
+        anaplanMrr:
+          type: number
+        quotaTargetMrr:
+          type: number
+        opportunityIds:
+          type: array
+          items:
+            type: string
+        opps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnaplanOppLine"
+        fallbackDims:
+          $ref: "#/components/schemas/AnaplanFallbackDims"
+        ownerInHierarchy:
+          type: boolean
+          nullable: true
+          description: >-
+            Whether the CPD's Owner (normalized: trim, lowercase, collapse
+            whitespace) is a member of the month-scoped effective hierarchy
+            (reps + FLMs + SLMs; inactive-for-the-month people count as NOT in
+            hierarchy). Null when the Owner field is blank — such rows are
+            never filtered by the "Filter Anaplan Users" dropdown.
+
+    AnaplanFallbackDims:
+      type: object
+      description: >-
+        Header-filter dimensions derived from a CPD's own fields plus the rep
+        hierarchy, used to keep an opp-less CPD (no found opportunity) visible
+        and filterable. Any dimension that cannot be resolved is the literal
+        string "None".
+      required:
+        - slm
+        - flm
+        - rep
+        - region
+        - segment
+        - group
+        - product
+      properties:
+        slm:
+          type: string
+        flm:
+          type: string
+        rep:
+          type: string
+        region:
+          type: string
+        segment:
+          type: string
+        group:
+          type: string
+        product:
+          type: string
+
+    AnaplanCheckResult:
+      type: object
+      required:
+        - month
+        - lastUpdate
+        - fetchedAt
+        - fetchError
+        - allColumns
+        - rows
+        - unmatchedOpps
+        - oppWindowStart
+        - oppWindowEnd
+      properties:
+        month:
+          type: string
+        oppWindowStart:
+          type: string
+        oppWindowEnd:
+          type: string
+        lastUpdate:
+          type: [string, 'null']
+        fetchedAt:
+          type: [string, 'null']
+        fetchError:
+          type: boolean
+        fetchErrorMessage:
+          type: string
+        allColumns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnaplanCpdRow"
+        unmatchedOpps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnaplanOppLine"
+
+    PhotoSyncResult:
+      type: object
+      required:
+        - synced
+        - failed
+        - skipped
+        - total
+      properties:
+        synced:
+          type: array
+          items:
+            type: string
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              reason:
+                type: string
+            required:
+              - name
+              - reason
+        skipped:
+          type: array
+          items:
+            type: string
+        total:
+          type: number
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl, role, hierarchyName]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+        role:
+          type: [string, 'null']
+          description: One of `guest`, `rep`, `flm`, `slm`, `admin`, `viewer`. Null if the user signed in but is not yet provisioned (and is not on the configured internal email domain). `guest` is a read-only role for users who chose "Continue without signing in". `viewer` is auto-assigned to logged-in internal-domain employees who are not in the Sales Hierarchy and not on the admin list — read-only org-wide access.
+        hierarchyName:
+          type: [string, 'null']
+          description: The full name of this user as it appears in the sales hierarchy, used to look up org relationships.
+        viewOnly:
+          type: boolean
+          description: True for stateless view-only sessions created via "Continue without signing in". These sessions cannot persist preferences or mutate any data, and may switch effective role via the `?role=` URL param.
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    UserPreferenceEnvelope:
+      type: object
+      required: [value]
+      properties:
+        value:
+          description: Arbitrary JSON value (object, array, primitive, or null).
+
+    Opportunity:
+      type: object
+      description: |
+        A single open or scheduled-mod opportunity as returned by the
+        sales endpoints. Mirrors the row shape produced by
+        `mapRowToOpp` / `mapRowToModOpp` in the api-server.
+      required:
+        - oppId
+        - rep
+        - funnelStage
+      properties:
+        oppId:
+          type: string
+        rep:
+          type: string
+        accountName:
+          type: string
+        funnelStage:
+          type: string
+        product:
+          type: string
+        mrr:
+          type: number
+        rawMrr:
+          type: number
+          nullable: true
+          description: |
+            Task #246: untreated (pre-multiplier) MRR for this opp, present
+            only when the response is computed in Compensable MRR mode. The
+            drilldown shows this in the MRR column while `mrr` carries the
+            compensable (adjusted) value.
+        compMultipliers:
+          type: array
+          nullable: true
+          description: |
+            Task #246: the stacked multipliers (as decimals) applied to derive
+            compensable MRR, in application order. Empty array means no
+            multiplier rule matched (effective 1x). Null outside comp mode.
+          items:
+            type: number
+        compRuleNames:
+          type: array
+          nullable: true
+          description: |
+            Task #246: human-readable names of the multiplier rules that
+            matched and were stacked for this opp. Null outside comp mode.
+          items:
+            type: string
+        pairOppName:
+          type: string
+          nullable: true
+          description: |
+            Name of the matched paired-opp rule's named opportunity this opp
+            belongs to. Null when not part of a matched group or outside comp mode.
+        pairKey:
+          type: string
+          nullable: true
+          description: |
+            Stable key grouping the members of one matched paired-opp group so
+            the drilldown can link them. Null when not part of a group.
+        pairRuleLabel:
+          type: string
+          nullable: true
+          description: Label of the paired-opp rule that matched this opp. Null otherwise.
+        pairAdjustmentLabel:
+          type: string
+          nullable: true
+          description: 'Human-readable adjustment applied to this opp (e.g. "zpro: × 0.1"). Null otherwise.'
+        churnSuppressed:
+          type: boolean
+          nullable: true
+          description: |
+            Task #317: true when this opp's churn was waived by a paired-opp
+            rule (the generic replacement for cancel/rebook + FUB-cancel
+            suppression). Null/false otherwise.
+        ownerReassignedTo:
+          type: string
+          nullable: true
+          description: Task #317: owner this opp's credit was reassigned to by a gated reassignOwnerToOpp adjustment. Null otherwise.
+        appliedMrrField:
+          type: string
+          nullable: true
+          enum:
+            - changeInMrr
+            - totalMrr
+            - splitTotalPrice
+            - totalPrice
+            - amount
+            - mrr
+          description: |
+            Task #276: the feeder-sheet column that fed the compensable base MRR
+            for this opp — a matching rule's MRR-field override, else the
+            Type-driven default. Null outside comp mode.
+        mrrFieldWinner:
+          type: string
+          nullable: true
+          description: |
+            Task #276: label of the rule whose MRR-field override actually
+            applied to this opp (null when no override applied, e.g. the default
+            field was used). When multiple field-setting rules matched, this is
+            the first (top-down) one.
+        mrrFieldRuleLabels:
+          type: array
+          nullable: true
+          description: |
+            Task #276: labels of every matching MRR-field-setting rule, in
+            order. Length > 1 means the opp matched conflicting field rules and
+            the first one won. Null outside comp mode.
+          items:
+            type: string
+        closeDate:
+          type: string
+          format: date
+        probabilityOverride:
+          type: number
+          nullable: true
+          description: Per-opportunity override of the stage default probability.
+        effectiveProbability:
+          type: number
+          nullable: true
+          description: |
+            `probabilityOverride` if set, else the funnel-stage default. Used
+            for weighted forecast math.
+        isReviewed:
+          type: boolean
+          description: |
+            Task #149: true iff the rep has explicitly reviewed this opp —
+            i.e. an `opp_probability_overrides` row exists AND its
+            `reviewed_at` is non-null. The frontend keys the yellow
+            "needs review" highlight and the Unreviewed Opportunities filter
+            off `!isReviewed`. The Sunday HST cron clears `reviewed_at` for
+            opted-in SLMs' opps so they re-appear here every Monday.
+
+    CompCondition:
+      type: object
+      required: [field, op, value]
+      description: |
+        A single condition tested by the multiplier engine. All conditions on
+        a rule must match (logical AND). `legacyFlag` is boolean; the others
+        are string-valued with numeric-aware comparison.
+      properties:
+        field:
+          type: string
+          enum:
+            - product
+            - rawProduct
+            - productFamily
+            - type
+            - termLength
+            - legacyFlag
+            - group
+            - segment
+            - salesRole
+            - quoteType
+            - oppName
+            - funnelStage
+            - changeInMrr
+            - splitTotalPrice
+            - flexFlipAgentStatus
+            - fub_first_purchase_date
+            - user
+            - oppOwner
+        op:
+          type: string
+          enum: [eq, ne, in, notIn, gt, gte, lt, lte, contains, notContains]
+        value:
+          description: Scalar for `eq`/`ne`; string array for `in`/`notIn`.
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+              items:
+                type: string
+
+    CompMultiplierRule:
+      type: object
+      required: [id, label, conditions, multiplier]
+      description: |
+        A conditional multiplier. Task #246: rules STACK — every rule whose
+        conditions all match contributes its multiplier and the engine
+        multiplies them together (was previously first-match-wins).
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompCondition"
+        multiplier:
+          type: number
+          minimum: 0
+          maximum: 100
+        appliesIn:
+          type: string
+          enum:
+            - quota
+            - sales
+            - both
+          description: |
+            Revenue-view mode(s) this rule applies in. "quota" = Quota Target
+            Revenue (default/compensable view), "sales" = Sales Target Revenue,
+            "both" = either. Omitted is treated as "quota".
+        mrrField:
+          type: string
+          nullable: true
+          enum:
+            - changeInMrr
+            - totalMrr
+            - splitTotalPrice
+            - totalPrice
+            - amount
+            - mrr
+          description: |
+            Task #276: optional per-rule base MRR source override. When set,
+            opps matching this rule's full condition set use this feeder-sheet
+            numeric column as the base MRR (before the multiplier) instead of
+            the Type-driven default. When an opp matches multiple field-setting
+            rules, the first (top-down) wins. Ignored for CPD-sourced rows
+            (ZMX / Showcase Incremental - Re/Max). Omit/null to keep the default.
+
+    CompPairedCondition:
+      type: object
+      required: [kind, field, op]
+      description: |
+        A condition inside a named opportunity. `kind: field` is a normal
+        field/op/value test. `kind: comparative` compares this opp's value (for
+        an identity/string field) or aggregate magnitude (for a numeric feeder
+        field) to another opp's. An identity `=` comparative joins the two opps
+        into the same deal/group; an identity `≠` filters within the group; a
+        numeric comparative is an aggregate magnitude gate.
+      properties:
+        kind:
+          type: string
+          enum: [field, comparative]
+        field:
+          type: string
+          description: |
+            For `field` conditions, any condition field. For `comparative`
+            conditions, this opp's identity (string) field or numeric feeder
+            column (left operand).
+          enum:
+            - product
+            - rawProduct
+            - productFamily
+            - type
+            - termLength
+            - legacyFlag
+            - group
+            - segment
+            - salesRole
+            - quoteType
+            - oppName
+            - funnelStage
+            - changeInMrr
+            - splitTotalPrice
+            - flexFlipAgentStatus
+            - totalMrr
+            - totalPrice
+            - amount
+            - mrr
+            - contactId
+            - accountId
+            - closeDate
+            - fub_first_purchase_date
+            - rep
+            - user
+            - oppOwner
+        op:
+          type: string
+          enum: [eq, ne, in, notIn, gt, gte, lt, lte, contains, notContains]
+        value:
+          nullable: true
+          description: Scalar for `eq`/`ne`/comparisons; string array for `in`/`notIn`. Unused for comparative conditions.
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+              items:
+                type: string
+        compareToOpp:
+          type: string
+          nullable: true
+          description: Comparative only — name of the opp supplying the right operand. May be another opp OR this opp's own name (a same-opp, per-row internal field comparison). A cross-opp identity eq/ne JOIN must reference an earlier opp in the rule's list; same-opp comparatives and closeDate ordering gates have no such ordering requirement.
+        compareToField:
+          type: string
+          nullable: true
+          description: Comparative only — that opp's field (right operand). Must be the same kind (identity vs numeric) as `field`.
+          enum:
+            - changeInMrr
+            - totalMrr
+            - splitTotalPrice
+            - totalPrice
+            - amount
+            - mrr
+            - contactId
+            - accountId
+            - closeDate
+            - fub_first_purchase_date
+            - product
+            - rawProduct
+            - productFamily
+            - type
+            - rep
+            - user
+            - oppOwner
+            - oppName
+            - funnelStage
+            - termLength
+            - group
+            - segment
+            - salesRole
+            - quoteType
+        dateGranularity:
+          type: string
+          nullable: true
+          enum: [month, exact]
+          description: Identity comparative only — for date fields (e.g. closeDate). Defaults to month.
+        factor:
+          type: number
+          nullable: true
+          description: Numeric (magnitude) comparative only — scalar applied to the right operand (compareTo opp's Σ field) via `factorOp` before the comparison. Defaults to 1.
+        factorOp:
+          type: string
+          nullable: true
+          enum: [add, subtract, multiply, divide]
+          description: "Task #411 — math operator combining the right operand's Σ field with the `factor` scalar (Σ RHS factorOp factor). Defaults to multiply, preserving legacy behavior. Numeric comparative only."
+        leftFactor:
+          type: number
+          nullable: true
+          description: "Per-side scalar applied to THIS opp's Σ field via `leftFactorOp` before the comparison. Defaults to 1. Numeric comparative only."
+        leftFactorOp:
+          type: string
+          nullable: true
+          enum: [add, subtract, multiply, divide]
+          description: "Per-side math operator combining this opp's Σ field with `leftFactor`. Defaults to multiply. Numeric comparative only."
+        rightFactor:
+          type: number
+          nullable: true
+          description: "Per-side scalar applied to the compareTo opp's Σ field via `rightFactorOp`. Falls back to the legacy `factor` when absent. Defaults to 1. Numeric comparative only."
+        rightFactorOp:
+          type: string
+          nullable: true
+          enum: [add, subtract, multiply, divide]
+          description: "Per-side math operator combining the compareTo opp's Σ field with `rightFactor`. Falls back to the legacy `factorOp` when absent. Defaults to multiply. Numeric comparative only."
+        leftSigned:
+          type: boolean
+          nullable: true
+          description: "Task #411 — when true, this opp's Σ field is compared as the raw SIGNED aggregate (Actual Value); when false/absent it is compared by magnitude (Absolute Value, the default). Numeric comparative only."
+        rightSigned:
+          type: boolean
+          nullable: true
+          description: "Task #411 — when true, the compareTo opp's combined operand is compared as the raw SIGNED value (Actual Value); when false/absent it is compared by magnitude (Absolute Value, the default). Numeric comparative only."
+        signed:
+          type: boolean
+          nullable: true
+          description: Legacy (pre-#411) single flag — when true BOTH sides compared signed. Still read for back-compat when leftSigned/rightSigned are absent. Superseded by the per-side flags. Defaults to false.
+        leftTerms:
+          type: array
+          nullable: true
+          description: "Task #420 — per-side FORMULA for the LEFT operand. An ordered list of logic terms combined by precedence (× / ÷ before + / −). When present (numeric comparatives only) it SUPERSEDES the single field + leftFactor/leftSigned operand. Each opp term's modifier is applied abs-inside: (abs(Σ) factorOp factor). Ignored for identity comparatives."
+          items:
+            $ref: "#/components/schemas/CompLogicTerm"
+        rightTerms:
+          type: array
+          nullable: true
+          description: "Task #420 — per-side FORMULA for the RIGHT operand. Same shape/semantics as leftTerms; supersedes compareToOpp/compareToField + rightFactor/rightSigned when present."
+          items:
+            $ref: "#/components/schemas/CompLogicTerm"
+
+    CompLogicTerm:
+      type: object
+      description: "Task #420 — a single logic object within a numeric comparative side. Either an opp-field term (Σ of a feeder MRR column over a named opp's rows, with abs/actual + factor applied abs-inside) or a custom literal constant."
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [opp, custom]
+          description: "opp = Σ of a feeder MRR column over a named opp's rows; custom = a literal constant."
+        joinOp:
+          type: string
+          nullable: true
+          enum: [add, subtract, multiply, divide]
+          description: "Operator joining this term to the PREVIOUS term on its side. Ignored on the first term. Defaults to add."
+        opp:
+          type: string
+          nullable: true
+          description: "opp term only — name of an opp in the same rule whose Σ field this term sums."
+        field:
+          type: string
+          nullable: true
+          enum: [changeInMrr, totalMrr, splitTotalPrice, totalPrice, amount, mrr]
+          description: "opp term only — feeder MRR column summed for that opp."
+        factor:
+          type: number
+          nullable: true
+          description: "opp term only — inner scalar combined with the (abs/actual) Σ via factorOp. Defaults to 1."
+        factorOp:
+          type: string
+          nullable: true
+          enum: [add, subtract, multiply, divide]
+          description: "opp term only — math operator combining the (abs/actual) Σ with factor: value = (Σ) factorOp factor. Defaults to multiply."
+        signed:
+          type: boolean
+          nullable: true
+          description: "opp term only — when true compares the raw SIGNED Σ (Actual Value); false/absent uses magnitude |Σ| (Absolute Value, default)."
+        value:
+          type: number
+          nullable: true
+          description: "custom term only — literal constant (may be negative; up to 2 decimal places)."
+
+    CompNamedOpp:
+      type: object
+      required: [name, mode, conditions]
+      description: |
+        A named opportunity within a paired-opp rule. `match` opps must have at
+        least one matching row in a deal; `exclude` opps must have none. (The UI
+        labels these EXISTS / DOES NOT EXIST.)
+      properties:
+        name:
+          type: string
+          description: Unique within the rule — referenced by comparative conditions + adjustments.
+        mode:
+          type: string
+          enum: [match, exclude]
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompPairedCondition"
+
+    CompAdjustment:
+      type: object
+      required: [targetOpp, op]
+      description: |
+        One adjustment applied to a matched group, targeting a named Match opp.
+        The math is applied to that opp's combined compensable MRR, then
+        distributed across its member rows proportional to |actual MRR|.
+      properties:
+        targetOpp:
+          type: string
+          description: Name of the Match opp this adjustment affects.
+        op:
+          type: string
+          enum:
+            - waive
+            - keep
+            - fixedCredit
+            - capAt
+            - incremental
+            - greaterOfFloorOrIncremental
+            - multiplyByFactor
+            - reassignMrrField
+            - ignoreAcqChurn
+        amount:
+          type: number
+          nullable: true
+          description: Dollar/factor parameter for fixedCredit / capAt / greaterOfFloorOrIncremental / multiplyByFactor.
+        comparisonOpp:
+          type: string
+          nullable: true
+          description: Name of the Match opp supplying |comparison| for incremental / greaterOfFloorOrIncremental.
+        comparisonField:
+          type: string
+          nullable: true
+          enum: [changeInMrr, totalMrr, splitTotalPrice, totalPrice, amount, mrr]
+          description: |
+            Optional feeder MRR column used to measure the comparison opp for
+            incremental / greaterOfFloorOrIncremental. When omitted, the
+            comparison uses the comparison opp's standardized MRR (existing
+            behavior). The target side always uses |standardized MRR|.
+        mrrField:
+          type: string
+          nullable: true
+          enum: [changeInMrr, totalMrr, splitTotalPrice, totalPrice, amount, mrr]
+          description: Feeder MRR column for reassignMrrField (feeder-only).
+        reassignOwnerToOpp:
+          type: string
+          nullable: true
+          description: |
+            Reassign the target opp's credit to this named (Match) opp's owner —
+            gated to target rows whose owner role is in reassignableOwnerRoles.
+
+    PairedOppRule:
+      type: object
+      required: [id, label, enabled, opps, adjustments]
+      description: |
+        A generic per-month cross-opp (paired-opp) rule. The first opp is the
+        anchor; every other opp ties itself to the deal via an identity `=`
+        comparative condition referencing an earlier opp. Comparatives may also
+        reference their own opp (a per-row internal field comparison), and
+        closeDate supports chronological ordering (>, >=, <, <=). Evaluates named
+        Match/Exclude opps and applies adjustments referencing opps by name.
+        Replaces the hardcoded FUB↔Zpro pairing and the cancel/rebook
+        churn-suppression.
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        enabled:
+          type: boolean
+        opps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompNamedOpp"
+        adjustments:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompAdjustment"
+        reassignableOwnerRoles:
+          type: array
+          nullable: true
+          description: Owner roles eligible for reassignOwnerToOpp. Defaults to Compliance Sales / Account Sales when omitted.
+          items:
+            type: string
+        appliesIn:
+          type: string
+          enum:
+            - quota
+            - sales
+            - both
+          description: |
+            Revenue-view mode(s) this rule applies in. "quota" = Quota Target
+            Revenue (default/compensable view), "sales" = Sales Target Revenue,
+            "both" = either. Omitted is treated as "quota".
+
+    CompConditionTestStatus:
+      type: string
+      enum: [match, noMatch, notTestable]
+      description: |
+        Per-condition diagnostic outcome. `match` = the pasted opp satisfies the
+        condition, `noMatch` = it does not, `notTestable` = it can't be evaluated
+        with one opp (e.g. a cross-opp comparative whose partner wasn't resolved).
+
+    CompMultiplierRuleDiagnosis:
+      type: object
+      required: [conditions]
+      properties:
+        conditions:
+          type: array
+          description: Aligned index-for-index to the rule's conditions.
+          items:
+            $ref: "#/components/schemas/CompConditionTestStatus"
+
+    CompPairedFiresVerdict:
+      type: string
+      enum: [fires, doesNotFire, incomplete]
+      description: |
+        Overall result of pinning the filled-in opps to their roles and running
+        the pairing logic. `incomplete` when no opp ids were entered at all.
+
+    CompPairedOppDiagnosis:
+      type: object
+      required: [name, isSelf, resolved, conditions]
+      properties:
+        name:
+          type: string
+        isSelf:
+          type: boolean
+          description: True for the named-opp role the pasted opp was mapped to.
+        resolved:
+          type: boolean
+          description: Whether some row filled this role for the pasted opp's deal.
+        conditions:
+          type: array
+          description: Aligned index-for-index to this named opp's conditions.
+          items:
+            $ref: "#/components/schemas/CompConditionTestStatus"
+        pinned:
+          type: boolean
+          description: |
+            Task #394. True when an opp id was pasted into this role's card.
+        found:
+          type: boolean
+          description: |
+            Task #394. Whether the pasted opp id resolved to a row (false → the
+            card shows "Opp not found"). True for blank roles (nothing to look up).
+
+    CompPairedRuleDiagnosis:
+      type: object
+      required: [selfOppName, opps]
+      properties:
+        selfOppName:
+          type: string
+          nullable: true
+          description: The named opp the pasted opp mapped to (null if none).
+        opps:
+          type: array
+          description: Aligned index-for-index to the rule's opps.
+          items:
+            $ref: "#/components/schemas/CompPairedOppDiagnosis"
+        fires:
+          $ref: "#/components/schemas/CompPairedFiresVerdict"
+
+    CompTestOppResult:
+      type: object
+      required: [found]
+      description: |
+        Result of diagnosing a pasted opp id against a rule. `found` is false
+        when no row carries that opp id (the UI shows "Opp not found"). Exactly
+        one of `multiplier` / `paired` is present when `found` is true, matching
+        the requested rule `kind`.
+      properties:
+        found:
+          type: boolean
+        multiplier:
+          $ref: "#/components/schemas/CompMultiplierRuleDiagnosis"
+        paired:
+          $ref: "#/components/schemas/CompPairedRuleDiagnosis"
+
+    CompensationConfig:
+      type: object
+      required: [monthYyyymm, multiplierRules, pairedOppRules, isDefault]
+      description: |
+        Per-month compensation config. `isDefault` is true when no saved row
+        exists and the June reference defaults are being returned.
+      properties:
+        monthYyyymm:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        multiplierRules:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompMultiplierRule"
+        pairedOppRules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PairedOppRule"
+        updatedByName:
+          type: string
+          nullable: true
+        updatedByRole:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          nullable: true
+        isDefault:
+          type: boolean
+
+    ProductLogicAssign:
+      type: object
+      required: [kind]
+      description: |
+        How a matched rule assigns the canonical product. `literal` => a fixed
+        product name (`product`). `field` => copy the value of a raw opp field
+        (`field`), applying the legacy "Market Based Pricing" -> "MBP"
+        normalization and blank -> "No Product Selected" fallback.
+      properties:
+        kind:
+          type: string
+          enum: [literal, field]
+        product:
+          type: string
+          description: Set when `kind` is `literal`.
+        field:
+          type: string
+          enum: [rawProduct, productFamily]
+          description: Set when `kind` is `field`.
+
+    ProductLogicRule:
+      type: object
+      required: [id, label, conditions, assign, mrrField, treatAsClosedWon, source]
+      description: |
+        One rule in the ordered, FIRST-MATCH product-logic set. All conditions
+        must match (logical AND); the first matching rule wins.
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompCondition"
+        assign:
+          $ref: "#/components/schemas/ProductLogicAssign"
+        mrrField:
+          type: string
+          enum:
+            - changeInMrr
+            - totalMrr
+            - splitTotalPrice
+            - totalPrice
+            - amount
+            - mrr
+            - mrr_added
+            - positive_change_in_mrr
+            - negative_change_in_mrr
+          description: |
+            Numeric MRR column standardizeMrr reads for matched rows. The picker
+            is source-scoped: feeder columns (changeInMrr…mrr) for `feeder`
+            rules, CPD-object columns (mrr_added, positive_change_in_mrr,
+            negative_change_in_mrr) for `cpd` rules. CPD `mrr_added` reads the
+            splitTotalPrice basis ingest copies onto the synthetic row.
+        treatAsClosedWon:
+          type: boolean
+          description: |
+            When true, rows attributed to this rule's product are treated as
+            Closed Won while in Discovery and their effective close date is
+            pinned to the 1st of the month (generalizes Overage handling).
+        source:
+          type: string
+          enum: [feeder, cpd]
+          description: |
+            MRR source of the rule, mirroring the compensation engine: `feeder`
+            (Salesforce feeder sheet) vs `cpd` (Databricks CPD synthetic object).
+            The chosen `mrrField` must belong to this source — feeder columns for
+            feeder rules, CPD-object columns for CPD rules.
+        isCatchAll:
+          type: boolean
+          description: The terminal passthrough rule catching everything else.
+
+    ProductRenameEntry:
+      type: object
+      required: [canonical]
+      description: |
+        Display-only rename for a canonical product. The canonical key is never
+        changed (Goals/Comp depend on it); these only affect presentation.
+      properties:
+        canonical:
+          type: string
+        filterName:
+          type: string
+          description: Name shown in the product filter (defaults to canonical).
+        abbreviation:
+          type: string
+          description: Short label used in charts/visualizations.
+        oppNameOverride:
+          type: string
+          description: Optional override for the opp name shown in drilldowns.
+
+    ProductLogicConfig:
+      type: object
+      required: [rules, renameMap, isDefault]
+      description: |
+        Global Product Logic config. `isDefault` is true when no saved row
+        exists and the code defaults are being returned.
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductLogicRule"
+        renameMap:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductRenameEntry"
+        updatedByName:
+          type: string
+          nullable: true
+        updatedByRole:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          nullable: true
+        isDefault:
+          type: boolean
+
+    ProductLogicExample:
+      type: object
+      required: [ruleId, fields, source]
+      description: |
+        A representative example opportunity snapshotted per rule, persisted so
+        it survives beyond the ~2-month feeder window. `fields` holds the raw
+        opp fields; the SF identity columns let the frontend resolve a link.
+      properties:
+        ruleId:
+          type: string
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+        source:
+          type: string
+          enum: [feeder, cpd]
+        oppId:
+          type: string
+          nullable: true
+        accountId:
+          type: string
+          nullable: true
+        sfContactId:
+          type: string
+          nullable: true
+        sfCpdId:
+          type: string
+          nullable: true
+        capturedAt:
+          type: string
+          format: date-time
+
+    ManagerEstimateRow:
+      type: object
+      required: [flmName, monthYyyymm, product, unweightedAmount, updatedByName, updatedByRole, updatedAt]
+      description: |
+        Per-(FLM, month, product) unweighted churn estimate. `updatedByName`
+        and `updatedByRole` are null on the auto-materialized $0 rows that
+        have never been edited.
+      properties:
+        flmName:
+          type: string
+        monthYyyymm:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        product:
+          type: string
+        unweightedAmount:
+          type: number
+        updatedByName:
+          type: string
+          nullable: true
+        updatedByRole:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+
+    RosterFieldSet:
+      type: object
+      required: [active, flm, slm, region, segment, salesRole]
+      description: A resolved field set (base or effective hierarchy values).
+      properties:
+        active:
+          type: boolean
+        flm:
+          type: string
+          nullable: true
+        slm:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        segment:
+          type: string
+          nullable: true
+        salesRole:
+          type: string
+          nullable: true
+
+    RosterOverrideSet:
+      type: object
+      required: [active, flm, slm, region, segment, salesRole]
+      description: |
+        A person's per-month override field set. Every field is nullable;
+        `null` means no override for that field (the base value applies).
+      properties:
+        active:
+          type: boolean
+          nullable: true
+        flm:
+          type: string
+          nullable: true
+        slm:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        segment:
+          type: string
+          nullable: true
+        salesRole:
+          type: string
+          nullable: true
+
+    RosterPersonRow:
+      type: object
+      required: [person, role, base, override, effective]
+      description: |
+        One roster row: a person (active or inactive) with their base
+        hierarchy values, the stored month override, and the resolved
+        effective values (override falling back to base).
+      properties:
+        person:
+          type: string
+        role:
+          type: string
+          enum: [slm, flm, rep]
+        base:
+          $ref: "#/components/schemas/RosterFieldSet"
+        override:
+          $ref: "#/components/schemas/RosterOverrideSet"
+        effective:
+          $ref: "#/components/schemas/RosterFieldSet"
+
+    GoalMetrics:
+      type: object
+      required: [mrrAddedGoal, mrrChurnGoal, mrrAddedMinimum, mrrChurnMaximum]
+      description: The four goal metrics resolved per (rep, product).
+      properties:
+        mrrAddedGoal:
+          type: number
+        mrrChurnGoal:
+          type: number
+        mrrAddedMinimum:
+          type: number
+        mrrChurnMaximum:
+          type: number
+
+    HierarchyJoinField:
+      type: string
+      description: A hierarchy-side field available for joining a source row to a rep.
+      enum: [Employee Number, Group, Region, Segment, Name]
+
+    GoalMetricKey:
+      type: string
+      enum: [mrrAddedGoal, mrrChurnGoal, mrrAddedMinimum, mrrChurnMaximum]
+
+    GoalProduct:
+      type: string
+      enum: [Showcase, MBP, Zillow Pro, Follow Up Boss, ZMX]
+
+    RoleGroupMapEntry:
+      type: object
+      required: [salesRole, group]
+      description: Maps a hierarchy sales role to a group label used by the Goal CSV join.
+      properties:
+        salesRole:
+          type: string
+        group:
+          type: string
+
+    GoalCsvJoinField:
+      type: object
+      required: [csv, hierarchy]
+      description: A join pair linking a Goal CSV column to a hierarchy field.
+      properties:
+        csv:
+          type: string
+        hierarchy:
+          $ref: "#/components/schemas/HierarchyJoinField"
+
+    FinancePpsJoinField:
+      type: object
+      required: [financePps, hierarchy]
+      description: A join pair linking a finance.pps column to a hierarchy field.
+      properties:
+        financePps:
+          type: string
+        hierarchy:
+          $ref: "#/components/schemas/HierarchyJoinField"
+
+    FinancePpsOutputMapEntry:
+      type: object
+      required: [column, metric, product]
+      description: Maps a finance.pps column to a (metric, product) goal target.
+      properties:
+        column:
+          type: string
+        metric:
+          $ref: "#/components/schemas/GoalMetricKey"
+        product:
+          $ref: "#/components/schemas/GoalProduct"
+
+    GoalCsvProductValueEntry:
+      type: object
+      required: [product, value]
+      description: |
+        Maps a dashboard product to the distinct value found in the Goal CSV's
+        Product column that identifies that product's rows.
+      properties:
+        product:
+          $ref: "#/components/schemas/GoalProduct"
+        value:
+          type: string
+
+    SoftwareColumnMap:
+      type: object
+      required: [mrrAddedGoal, mrrChurnGoal, mrrAddedMinimum, mrrChurnMaximum]
+      description: Per-metric sub-source column names for the Software % Rules source.
+      properties:
+        mrrAddedGoal:
+          type: string
+        mrrChurnGoal:
+          type: string
+        mrrAddedMinimum:
+          type: string
+        mrrChurnMaximum:
+          type: string
+
+    SoftwarePctRules:
+      type: object
+      required: [subSource, columnMapping, percentages]
+      description: |
+        Software % Rules config: the sub-source choice, its column mapping, and
+        the per-software-product percentages (whole integers summing to 100).
+        Software products are Showcase, Zillow Pro, Follow Up Boss, ZMX.
+      properties:
+        subSource:
+          type: string
+          enum: [financePps, goalCsv]
+        columnMapping:
+          type: object
+          required: [financePps, goalCsv]
+          properties:
+            financePps:
+              $ref: "#/components/schemas/SoftwareColumnMap"
+            goalCsv:
+              $ref: "#/components/schemas/SoftwareColumnMap"
+        percentages:
+          type: object
+          required: [Showcase, Zillow Pro, Follow Up Boss, ZMX]
+          properties:
+            Showcase:
+              type: number
+            Zillow Pro:
+              type: number
+            Follow Up Boss:
+              type: number
+            ZMX:
+              type: number
+
+    GoalsConfig:
+      type: object
+      required:
+        - roleGroupMapping
+        - goalCsvJoinFields
+        - goalCsvOutputMapping
+        - goalCsvInspectColumns
+        - goalCsvProductColumn
+        - goalCsvProductValueMapping
+        - financePpsJoinFields
+        - financePpsOutputMapping
+        - financePpsInspectColumns
+        - softwareGnrRules
+        - softwareAcqRules
+      description: The complete editable config powering the Goals tab.
+      properties:
+        roleGroupMapping:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleGroupMapEntry"
+        goalCsvJoinFields:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalCsvJoinField"
+        goalCsvOutputMapping:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+        goalCsvInspectColumns:
+          type: array
+          items:
+            type: string
+        goalCsvProductColumn:
+          type: string
+          description: |
+            The Goal CSV column whose value identifies which dashboard product a
+            row belongs to. Empty when not yet configured.
+        goalCsvProductValueMapping:
+          type: array
+          items:
+            $ref: "#/components/schemas/GoalCsvProductValueEntry"
+        financePpsJoinFields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinancePpsJoinField"
+        financePpsOutputMapping:
+          type: array
+          items:
+            $ref: "#/components/schemas/FinancePpsOutputMapEntry"
+        financePpsInspectColumns:
+          type: array
+          items:
+            type: string
+        softwareGnrRules:
+          $ref: "#/components/schemas/SoftwarePctRules"
+        softwareAcqRules:
+          $ref: "#/components/schemas/SoftwarePctRules"
+
+    GoalsConfigEnvelope:
+      type: object
+      required: [config, options]
+      properties:
+        config:
+          $ref: "#/components/schemas/GoalsConfig"
+        options:
+          type: object
+          required: [products, softwareProducts, metrics, hierarchyJoinFields]
+          properties:
+            products:
+              type: array
+              items:
+                $ref: "#/components/schemas/GoalProduct"
+            softwareProducts:
+              type: array
+              items:
+                type: string
+            metrics:
+              type: array
+              items:
+                $ref: "#/components/schemas/GoalMetricKey"
+            hierarchyJoinFields:
+              type: array
+              items:
+                $ref: "#/components/schemas/HierarchyJoinField"
+
+    ResolvedGoals:
+      type: object
+      description: |
+        Resolved goals for a month: rep name → product name → metrics. Products
+        and metrics a source does not populate are absent (read as zero
+        downstream).
+      additionalProperties:
+        type: object
+        additionalProperties:
+          $ref: "#/components/schemas/GoalMetrics"
+
+    GoalSourceId:
+      type: string
+      description: Which goal source drives a row's base goals.
+      enum: [financePps, goalCsv, softwareGnr, softwareAcq]
+
+    GoalTableRow:
+      type: object
+      description: One assembled main Goals-table row (rep × product × month).
+      required:
+        - month
+        - group
+        - rep
+        - employeeId
+        - salesRole
+        - slm
+        - flm
+        - region
+        - segment
+        - teamSize
+        - product
+        - source
+        - mrrAddedGoal
+        - mrrChurnGoal
+        - mrrAddedMinimum
+        - mrrChurnMaximum
+        - mrrAddedManualMultiplier
+        - mrrChurnManualMultiplier
+        - loaStatus
+        - eRepManualMultiplier
+        - eRepDatabricksMultiplier
+        - eRepMultiplier
+        - finalMrrAddedGoal
+        - finalChurnGoal
+        - finalMrrMinGoal
+        - finalChurnMaxGoal
+      properties:
+        month:
+          type: string
+        group:
+          type: string
+        rep:
+          type: string
+        employeeId:
+          type: string
+        salesRole:
+          type: string
+        slm:
+          type: string
+        flm:
+          type: string
+        region:
+          type: string
+        segment:
+          type: string
+        teamSize:
+          type: integer
+          description: Distinct reps sharing this rep's Channel + Region + Segment.
+        product:
+          $ref: "#/components/schemas/GoalProduct"
+        source:
+          $ref: "#/components/schemas/GoalSourceId"
+        mrrAddedGoal:
+          type: number
+        mrrChurnGoal:
+          type: number
+        mrrAddedMinimum:
+          type: number
+        mrrChurnMaximum:
+          type: number
+        mrrAddedManualMultiplier:
+          type: number
+        mrrChurnManualMultiplier:
+          type: number
+        loaStatus:
+          type: string
+        eRepManualMultiplier:
+          type: [number, 'null']
+          description: Per-row manual eRep override, or null when none is set.
+        eRepDatabricksMultiplier:
+          type: [number, 'null']
+          description: Databricks-sourced eRep value for this rep+month, or null.
+        eRepMultiplier:
+          type: number
+          description: Effective eRep used in the Final columns = manual ?? databricks ?? 1.0.
+        finalMrrAddedGoal:
+          type: number
+        finalChurnGoal:
+          type: number
+        finalMrrMinGoal:
+          type: number
+        finalChurnMaxGoal:
+          type: number
+
+    GoalRowOverrideInput:
+      type: object
+      description: |
+        Upsert payload for a single Goals-table row override. `month`, `rep` and
+        `product` identify the row; the remaining fields are optional and only
+        the provided ones are changed.
+      required: [month, rep, product]
+      properties:
+        month:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        rep:
+          type: string
+        product:
+          $ref: "#/components/schemas/GoalProduct"
+        source:
+          $ref: "#/components/schemas/GoalSourceId"
+        mrrAddedManualMultiplier:
+          type: number
+          minimum: 0
+        mrrChurnManualMultiplier:
+          type: number
+          minimum: 0
+        loaStatus:
+          type: string
+        eRepMultiplier:
+          type: [number, 'null']
+          minimum: 0
+          description: |
+            Manual eRep override. Omit to leave unchanged, send null to clear
+            back to the Databricks-sourced value, or a number to set it.
+
+    GoalRowOverride:
+      type: object
+      description: A persisted Goals-table per-row override.
+      required:
+        - monthYyyymm
+        - rep
+        - product
+        - source
+        - mrrAddedManualMultiplier
+        - mrrChurnManualMultiplier
+        - loaStatus
+        - eRepMultiplier
+        - updatedAt
+      properties:
+        monthYyyymm:
+          type: string
+        rep:
+          type: string
+        product:
+          type: string
+        source:
+          type: string
+        mrrAddedManualMultiplier:
+          type: number
+        mrrChurnManualMultiplier:
+          type: number
+        loaStatus:
+          type: string
+        eRepMultiplier:
+          type: [number, 'null']
+        updatedAt:
+          type: string
+          format: date-time
+        updatedByName:
+          type: [string, 'null']
+        updatedByRole:
+          type: [string, 'null']
+
+  responses:
+    GoalsValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
